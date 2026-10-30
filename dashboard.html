@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Küchen-Zentrale Live</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script defer src="config.js"></script>
+    <style>
+        /* Farbschema: gleiche Variablen-Logik wie die Gäste-App (style.css) */
+        :root {
+            --bg: #060606; --surface: #141414; --surface-2: #1c1c1c;
+            --border: rgba(255,255,255,.1); --text: #f5f5f5; --text-muted: #9c9c9c;
+            --accent: #d8af4b; --accent-hover: #f1c75c; --accent-contrast: #0a0a0a;
+            --accent-gradient: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            --success: #4ade80; --danger: #ef4444; --info: #60a5fa; --working: #a78bfa;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif; }
+        body { background: var(--bg); color: var(--text); padding: 28px; }
+        header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding-bottom: 18px; margin-bottom: 26px; border-bottom: 1px solid var(--border); }
+        h1 { font-size: 1.5rem; font-weight: 800; } h1 i { color: var(--accent); }
+        .head-right { display: flex; align-items: center; gap: 16px; }
+        .live { color: var(--success); font-size: .85rem; font-weight: 700; display: flex; gap: 8px; align-items: center; }
+        .live i { animation: pulse 2s infinite; } @keyframes pulse { 50% { opacity: .3; } }
+        .live.demo { color: var(--danger); }
+        .sound { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-muted); font-weight: 600; cursor: pointer; }
+        .sound.on { color: var(--accent-contrast); background: var(--accent-gradient); border-color: transparent; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        .card { background: var(--surface); border: 1px solid var(--border); border-top: 5px solid var(--accent); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; animation: in .4s ease; }
+        @keyframes in { from { opacity: 0; transform: translateY(10px); } }
+        .card.SERVICE { border-top-color: var(--danger); } .card.PAYMENT { border-top-color: var(--info); }
+        .card.in_arbeit { border-top-color: var(--working); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+        .title { font-weight: 800; } .time { color: var(--text-muted); font-size: .8rem; font-weight: 500; }
+        .table-badge { background: var(--accent); color: var(--accent-contrast); padding: 5px 12px; border-radius: 8px; font-weight: 800; }
+        .items { flex-grow: 1; display: grid; gap: 8px; }
+        .row { display: flex; justify-content: space-between; gap: 10px; font-size: .95rem; font-weight: 500; }
+        .qty { font-weight: 800; color: var(--accent); margin-right: 6px; }
+        .size { font-size: .75rem; color: var(--text-muted); white-space: nowrap; }
+        .note { font-size: .8rem; color: var(--accent-hover); font-style: italic; padding-left: 26px; }
+        .footer { margin-top: 18px; padding-top: 12px; border-top: 1px dashed var(--border); display: grid; gap: 8px; }
+        .total { display: flex; justify-content: space-between; font-weight: 800; font-size: 1.1rem; color: var(--accent); }
+        .pay { justify-self: start; font-size: .75rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.08); color: var(--text-muted); }
+        .pay.paid { background: rgba(74,222,128,.15); color: var(--success); }
+        .pay.test { background: rgba(239,68,68,.15); color: var(--danger); }
+        .actions { display: flex; gap: 10px; margin-top: 16px; }
+        button.act { flex: 1; padding: 14px; border: 0; border-radius: 10px; font-weight: 700; cursor: pointer; transition: transform .1s; }
+        button.act:active { transform: scale(.97); }
+        .btn-status { background: var(--accent-gradient); color: var(--accent-contrast); }
+        .btn-status.work { background: var(--success); color: #04210f; }
+        .btn-archive { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border) !important; }
+        .empty { grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 80px 20px; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><i class="fa-solid fa-kitchen-set"></i> Küchen-Monitor</h1>
+        <div class="head-right">
+            <button class="sound" id="soundBtn"><i class="fa-solid fa-volume-xmark"></i> Ton aus</button>
+            <div class="live" id="live"><i class="fa-solid fa-circle"></i> <span>LIVE</span></div>
+        </div>
+    </header>
+    <div class="grid" id="board"></div>
+
+    <script>
+    window.addEventListener("DOMContentLoaded", () => {
+        // Hilfsfunktionen
+        const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+        const euro = (n) => Number(n || 0).toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+        const TYPE_LABEL = { ORDER: "Bestellung", PAYMENT: "Zahlung", SERVICE: "Service" };
+        const board = document.getElementById("board");
+
+        // Verbindung zu Firestore: gleiche Collection "orders" wie die Gäste-App (config.js)
+        const fbConfig = typeof FIREBASE_CONFIG !== "undefined" ? FIREBASE_CONFIG : (typeof firebaseConfig !== "undefined" ? firebaseConfig : null);
+        if (!fbConfig || !fbConfig.apiKey || typeof firebase === "undefined") {
+            board.innerHTML = '<div class="empty">⚠️ Firebase-Konfiguration nicht gefunden.<br>In config.js muss <b>const FIREBASE_CONFIG = {…}</b> stehen, und config.js muss im selben Ordner wie dashboard.html liegen.</div>';
+            document.getElementById("live").classList.add("demo");
+            return;
+        }
+        firebase.initializeApp(fbConfig);
+        const db = firebase.firestore();
+
+        // Ton: Browser erlauben Audio erst nach einem Klick → Button schaltet ihn frei
+        const sound = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav");
+        let soundOn = false, firstLoad = true;
+        const soundBtn = document.getElementById("soundBtn");
+        soundBtn.onclick = () => {
+            soundOn = !soundOn;
+            soundBtn.classList.toggle("on", soundOn);
+            soundBtn.innerHTML = soundOn ? '<i class="fa-solid fa-volume-high"></i> Ton an' : '<i class="fa-solid fa-volume-xmark"></i> Ton aus';
+            if (soundOn) sound.play().catch(() => {});
+        };
+
+        // Echtzeit-Abo: jede neue Bestellung / Statusänderung löst diese Funktion sofort aus
+        db.collection("orders").orderBy("timestamp", "asc").onSnapshot((snap) => {
+            if (!firstLoad && soundOn && snap.docChanges().some((c) => c.type === "added")) sound.play().catch(() => {});
+            firstLoad = false;
+            render(snap);
+        }, (err) => {
+            console.error("Firestore-Fehler:", err.code, err);
+            const live = document.getElementById("live");
+            live.classList.add("demo");
+            live.querySelector("span").textContent = "VERBINDUNG FEHLT [" + (err.code || "unbekannt") + "]";
+        });
+
+        function paymentBadge(p) {
+            if (p === "BAR") return '<span class="pay"><i class="fa-solid fa-money-bill"></i> Bar beim Kellner</span>';
+            if (p === "ONLINE_BEZAHLT") return '<span class="pay paid"><i class="fa-solid fa-check"></i> Online bezahlt</span>';
+            if (String(p).endsWith("_TEST")) return '<span class="pay test">TEST – nicht abgebucht (' + esc(p.replace("_TEST", "")) + ")</span>";
+            return '<span class="pay">Noch nicht bezahlt</span>';
+        }
+
+        function render(snap) {
+            const cards = [];
+            snap.forEach((doc) => {
+                const d = doc.data();
+                if (d.status === "erledigt") return; // archivierte ausblenden
+                const t = d.timestamp && d.timestamp.toDate ? d.timestamp.toDate().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "gerade eben";
+                const next = d.status === "eingegangen" ? "in_arbeit" : "erledigt";
+
+                let body;
+                if (d.type === "ORDER") {
+                    body = (d.items || []).map((i) => `
+                        <div><div class="row"><span><span class="qty">${esc(i.qty)}x</span>${esc(i.name)}</span><span class="size">${esc(i.size)}</span></div>
+                        ${i.note ? `<div class="note">„${esc(i.note)}“</div>` : ""}</div>`).join("");
+                } else {
+                    body = `<div class="row" style="font-weight:700"><span><i class="fa-solid fa-bell" style="color:var(--accent)"></i> ${esc(d.message)}</span></div>`;
+                }
+
+                cards.push(`
+                <div class="card ${esc(d.type)} ${esc(d.status)}">
+                    <div class="card-header">
+                        <div><div class="title">${TYPE_LABEL[d.type] || "Service"}</div><div class="time">${t}</div></div>
+                        <span class="table-badge">Tisch ${esc(d.tableNumber)}</span>
+                    </div>
+                    <div class="items">${body}</div>
+                    ${d.type === "ORDER" ? `<div class="footer"><div class="total"><span>Summe</span><span>${euro(d.totalPrice)}</span></div>${d.tip > 0 ? `<div class="row" style="color:var(--text-muted);font-size:.85rem"><span>davon Trinkgeld</span><span>${euro(d.tip)}</span></div>` : ""}${paymentBadge(d.payment)}</div>` : ""}
+                    <div class="actions">
+                        <button class="act btn-status ${d.status === "eingegangen" ? "" : "work"}" data-id="${doc.id}" data-status="${next}">${d.status === "eingegangen" ? "In Arbeit nehmen" : "Erledigt"}</button>
+                        <button class="act btn-archive" data-id="${doc.id}" data-status="erledigt">Archivieren</button>
+                    </div>
+                </div>`);
+            });
+            board.innerHTML = cards.join("") || '<div class="empty">Keine offenen Bestellungen. Entspannen! ☕</div>';
+        }
+
+        // Statuswechsel → Firestore → Gäste-App bekommt die Meldung automatisch
+        board.addEventListener("click", (e) => {
+            const b = e.target.closest("button[data-id]");
+            if (b) db.collection("orders").doc(b.dataset.id).update({ status: b.dataset.status });
+        });
+    });
+    </script>
+</body>
+</html>

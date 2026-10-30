@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <!-- Zoom bleibt erlaubt (Barrierefreiheit); Eingabefelder haben 16px, damit iOS nicht zoomt -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#060606">
+    <title>Digitales Restaurant Menü</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+
+    <!-- defer: Skripte laden parallel, laufen aber in genau dieser Reihenfolge -->
+    <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script defer src="config.js"></script>
+    <script defer src="menu-data.js"></script>
+    <script defer src="script.js"></script>
+</head>
+<body>
+
+    <header class="app-header">
+        <h1 id="restaurantName">Laden…</h1>
+        <button class="table-pill" id="tableLabel" data-action="open-table" aria-label="Tischnummer ändern">
+            <i class="fa-solid fa-chair"></i> <span>Tisch --</span>
+        </button>
+    </header>
+
+    <nav class="category-nav" id="categoryNav" aria-label="Kategorien"></nav>
+
+    <main class="menu-grid" id="menuGrid"></main>
+
+    <!-- Untere Navigationsleiste -->
+    <nav class="bottom-nav" aria-label="Hauptnavigation">
+        <button class="nav-item" data-action="show-all"><i class="fa-solid fa-utensils"></i><span>Menü</span></button>
+        <button class="nav-item" data-action="open-layer" data-target="serviceSheet"><i class="fa-solid fa-bell"></i><span>Service</span></button>
+        <button class="nav-item" data-action="open-pay"><i class="fa-solid fa-credit-card"></i><span>Zahlen</span></button>
+        <button class="nav-item" data-action="open-cart">
+            <i class="fa-solid fa-basket-shopping"></i><span>Warenkorb</span>
+            <span class="cart-badge" id="cartCount">0</span>
+        </button>
+    </nav>
+
+    <!-- Abdunklung hinter Warenkorb & Sheets -->
+    <div class="backdrop" id="backdrop" data-action="close-layers"></div>
+
+    <!-- Warenkorb -->
+    <aside class="drawer" id="cartDrawer" aria-label="Warenkorb">
+        <div class="layer-head">
+            <h2>Deine Auswahl</h2>
+            <button class="icon-btn" data-action="close-layers" aria-label="Schließen"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="cart-content" id="cartList"></div>
+        <div class="cart-footer">
+            <p class="cart-table"><i class="fa-solid fa-chair"></i> Bestellung für <strong id="cartTable">Tisch --</strong></p>
+            <!-- Trinkgeld (Stufen kommen aus script.js / config.js) -->
+            <div class="tip" id="tipBox">
+                <p class="pay-label">Trinkgeld</p>
+                <div class="tip-chips" id="tipChips"></div>
+                <div class="tip-custom" id="tipCustom" hidden>
+                    <input type="number" id="tipInput" inputmode="decimal" min="0" step="0.5" placeholder="Betrag in €" aria-label="Eigenes Trinkgeld in Euro">
+                </div>
+            </div>
+            <div class="cart-sums">
+                <div><span>Zwischensumme</span><span id="subTotal">0,00 €</span></div>
+                <div id="tipRow" hidden><span>Trinkgeld</span><span id="tipTotal">0,00 €</span></div>
+            </div>
+            <div class="cart-total"><span>Gesamtbetrag</span><strong id="totalPrice">0,00 €</strong></div>
+            <!-- Zahlungsart wählen = Bestellung abschicken -->
+            <div class="cart-pay" id="cartPay">
+                <button class="pay-toggle" id="payToggle" data-action="toggle-pay" aria-expanded="false" aria-controls="payPanel">
+                    <span>Zahlungsart wählen &amp; bestellen</span><i class="fa-solid fa-chevron-up"></i>
+                </button>
+                <div class="pay-panel" id="payPanel">
+                    <div class="pay-options">
+                        <div id="cartApplePay"></div>
+                        <div id="cartGooglePay"></div>
+                        <div id="cartPayPal"></div>
+                        <button class="btn btn-secondary btn-block" id="checkoutBtn" data-action="order-cash">💵 Bar beim Kellner bezahlen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Service -->
+    <section class="sheet" id="serviceSheet" aria-label="Service">
+        <h2>Service anfordern</h2>
+        <button class="btn btn-secondary" data-action="service" data-msg="Kellner rufen">🙋‍♂️ Kellner rufen</button>
+        <button class="btn btn-secondary" data-action="service" data-msg="Rechnung anfordern">🧾 Rechnung bringen</button>
+        <button class="btn btn-ghost" data-action="close-layers">Abbrechen</button>
+    </section>
+
+    <!-- Bezahlen -->
+    <section class="sheet" id="paySheet" aria-label="Bezahlen">
+        <h2>Wie möchtest du zahlen?</h2>
+        <p class="pay-amount" id="payAmount" hidden></p>
+        <p class="hint" id="payHint" hidden>Lege zuerst etwas in den Warenkorb, um online zu bezahlen.</p>
+        <div class="pay-online" id="payOnline">
+            <div id="applePayBox"></div>
+            <div id="googlePayBox"></div>
+            <div id="paypalBox"></div>
+        </div>
+        <button class="btn btn-secondary" data-action="pay-cash">💵 Bar beim Kellner</button>
+        <button class="btn btn-ghost" data-action="close-layers">Abbrechen</button>
+    </section>
+
+    <!-- Tischnummer (erscheint bei jedem neuen Besuch) -->
+    <div class="modal" id="tableModal" role="dialog" aria-modal="true" aria-labelledby="tableTitle">
+        <div class="modal-box">
+            <button class="icon-btn modal-close" id="tableClose" data-action="close-table" aria-label="Schließen" hidden><i class="fa-solid fa-xmark"></i></button>
+            <div class="modal-icon"><i class="fa-solid fa-chair"></i></div>
+            <h2 id="tableTitle">Willkommen!</h2>
+            <p>Bitte bestätige oder ändere deine Tischnummer:</p>
+            <input type="number" id="tableInput" inputmode="numeric" placeholder="z. B. 5" min="1" aria-label="Tischnummer">
+            <p class="form-error" id="tableError" hidden></p>
+            <button class="btn btn-primary btn-block" data-action="save-table">Speichern &amp; weiter</button>
+        </div>
+    </div>
+
+    <div id="toastBox" aria-live="polite"></div>
+
+</body>
+</html>
